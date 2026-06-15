@@ -1,2 +1,6 @@
 *.env
 !.env.example
+
+#a bunch of build files
+out
+hccdn-cli
