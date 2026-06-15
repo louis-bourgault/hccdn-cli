@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/louis-bourgault/hccdn-cli/db"
 	"github.com/spf13/cobra"
 )
 
@@ -26,11 +27,30 @@ var upCmd = &cobra.Command{
 			if err != nil {
 				return err
 			}
+			filesToUpload := []string{}
 			if info.IsDir() {
 				fmt.Println("direc")
+				//not recursive
+				entries, err := os.ReadDir(location)
+				if err != nil {
+					return err
+				}
+				for _, entry := range entries {
+					if !entry.IsDir() {
+						filesToUpload = append(filesToUpload, filepath.Join(location, entry.Name()))
+					}
+				}
+				fmt.Printf("uploading %d files\n", len(filesToUpload))
 			} else {
 				fmt.Println("file")
+				filesToUpload = append(filesToUpload, location)
 			}
+			wd, err := os.Getwd()
+			if err != nil {
+				return err
+			}
+			sessionID, err := db.BeginSession(cmd.CalledAs(), wd)
+			//upload the things
 		}
 		return nil
 	},
