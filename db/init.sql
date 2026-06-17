@@ -1,11 +1,10 @@
 PRAGMA foreign_keys = ON;
 
 CREATE TABLE if not exists Files (
-    path TEXT PRIMARY KEY,
-
+    path TEXT PRIMARY KEY
 );
 
-CREATE TABLE History (
+CREATE TABLE sessions (
     id TEXT PRIMARY KEY,
     command_text TEXT,
     from_dir TEXT,
@@ -18,9 +17,13 @@ CREATE TABLE Uploads (
     size BIGINT,
     session_id TEXT,
     url TEXT,
-    content_type text
-    CONSTRAINT fk_upload_history
+    content_type text,
+    created_at timestamp,
+    file text,
+    CONSTRAINT fk_upload_session
         FOREIGN KEY (session_id)
-        REFERENCES History(id)
+        REFERENCES sessions(id),
+    CONSTRAINT fk_file
+        FOREIGN KEY (file)
+        REFERENCES Files(path)
 );
-
