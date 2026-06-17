@@ -18,11 +18,19 @@ before:
 
 # no arm apart from macos.
 builds:
-  - main: ./...
+  - id: linux
+    main: ./...
     env:
       - CGO_ENABLED=1
     goos:
       - linux
+    goarch:
+      - amd64
+  - id: darwin
+    main: ./...
+    env:
+      - CGO_ENABLED=1
+    goos:
       - darwin
     goarch:
       - amd64
