@@ -16,21 +16,12 @@ before:
     - go generate ./...
 
 
-# no arm apart from macos.
 builds:
-  - id: linux
-    main: ./...
+  - main: ./...
     env:
       - CGO_ENABLED=1
     goos:
       - linux
-    goarch:
-      - amd64
-  - id: darwin
-    main: ./...
-    env:
-      - CGO_ENABLED=1
-    goos:
       - darwin
     goarch:
       - amd64
