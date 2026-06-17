@@ -11,6 +11,10 @@ First build with ```go build .```
 
 This will update, once everything is processed and uploaded, a JSON array of all the files and optimised versions, and a session ID (which can be used for deletion, as described below)
 
+# Building and Releasing
+This is built with github actions, and crosscompiled for Mac, Linux and Windows with Goreleaser. This action triggers on any git tag. pushed to github.
+
+
 
 # Todo
 - Check whether something already exists when uploading it
