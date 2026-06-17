@@ -14,6 +14,7 @@ This will update, once everything is processed and uploaded, a JSON array of all
 # Building and Releasing
 This is built with github actions, and crosscompiled for Mac, Linux and Windows with Goreleaser. This action triggers on any git tag. pushed to github.
 
+```git tag vX.Y.Z; git push --tags```
 
 
 # Todo

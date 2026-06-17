@@ -18,7 +18,8 @@ before:
 
 # no arm apart from macos.
 builds:
-  - main: ./...
+  - id: linux-windows
+    main: ./...
     env:
       - CGO_ENABLED=1
     goos:
@@ -27,7 +28,8 @@ builds:
     goarch:
       - amd64
       - "386"
-  - main: ./...
+  - id: darwin
+    main: ./...
     env:
       - CGO_ENABLED=1
     goos:
