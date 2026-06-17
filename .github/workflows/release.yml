@@ -9,42 +9,115 @@ permissions:
   contents: write
 
 jobs:
-  goreleaser:
+  build:
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
-            id: linux
+            goos: linux
+            goarch: amd64
           - os: macos-latest
-            id: darwin
+            goos: darwin
+            goarch: arm64
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version: stable
-      
+
       - name: Install dependencies (Ubuntu)
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebp-dev
-      
+
       - name: Install dependencies (macOS)
         if: matrix.os == 'macos-latest'
         run: |
           brew install webp
-      
-      - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@v7
-        with:
-          distribution: goreleaser
-          version: "~> v2"
-          args: release --clean --id=${{ matrix.id }}
+
+      - name: Build binary
+        run: |
+          go mod tidy
+          go generate ./...
+          go build -o hccdn-cli ./...
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CGO_ENABLED: "1"
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+
+      - name: Create archive
+        run: |
+          ARCHIVE_NAME="hccdn-cli_${{ matrix.goos }}_${{ matrix.goarch }}"
+          mkdir -p "${ARCHIVE_NAME}"
+          cp hccdn-cli "${ARCHIVE_NAME}/"
+          cp LICENSE README.md "${ARCHIVE_NAME}/" 2>/dev/null || true
+          tar czf "${ARCHIVE_NAME}.tar.gz" "${ARCHIVE_NAME}"
+          echo "ARCHIVE_NAME=${ARCHIVE_NAME}.tar.gz" >> "$GITHUB_ENV"
+
+      - name: Upload archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: archive-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: "*.tar.gz"
+          retention-days: 1
+
+  release:
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download all archives
+        uses: actions/download-artifact@v4
+        with:
+          pattern: archive-*
+          merge-multiple: true
+
+      - name: Generate checksums
+        run: |
+          sha256sum *.tar.gz > checksums.txt
+          cat checksums.txt
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          # Get previous tag
+          PREV_TAG=$(git tag --sort=-version:refname | head -n 2 | tail -n 1)
+          CURRENT_TAG=${GITHUB_REF#refs/tags/}
+
+          echo "## Changelog" > changelog.md
+          echo "" >> changelog.md
+
+          if [ -n "$PREV_TAG" ] && [ "$PREV_TAG" != "$CURRENT_TAG" ]; then
+            git log --pretty=format:"- %s" "${PREV_TAG}..${CURRENT_TAG}" \
+              | grep -v "^- docs:" \
+              | grep -v "^- test:" \
+              >> changelog.md || true
+          else
+            git log --pretty=format:"- %s" -10 >> changelog.md || true
+          fi
+
+          echo "" >> changelog.md
+          echo "---" >> changelog.md
+          echo "" >> changelog.md
+          echo "Released by GitHub Actions" >> changelog.md
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${GITHUB_REF#refs/tags/}" \
+            --title "${GITHUB_REF#refs/tags/}" \
+            --notes-file changelog.md \
+            *.tar.gz checksums.txt
