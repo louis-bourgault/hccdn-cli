@@ -14,9 +14,9 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            goos: linux
+            id: linux
           - os: macos-latest
-            goos: darwin
+            id: darwin
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
@@ -45,7 +45,6 @@ jobs:
         with:
           distribution: goreleaser
           version: "~> v2"
-          args: release --clean
+          args: release --clean --id=${{ matrix.id }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GOOS: ${{ matrix.goos }}
