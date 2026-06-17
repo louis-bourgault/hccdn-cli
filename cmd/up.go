@@ -233,7 +233,7 @@ func UploadToCDN(filePath, apiKey string, opt string) (*types.Upload, error) {
 
 func init() {
 	rootCmd.AddCommand(upCmd)
-	upCmd.Flags().BoolP("recursive", "r", false, "Upload directories recursively")
+	// upCmd.Flags().BoolP("recursive", "r", false, "Upload directories recursively")
 	upCmd.Flags().StringP("optimise", "o", "", "Optimise to certain resolutions. Comma seperated list of max width/heights (whichever is larger will be used). For example: 1000,2000")
-	upCmd.Flags().BoolP("anon", "a", false, "Won't save to the db. Note: deleting files won't work")
+	// upCmd.Flags().BoolP("anon", "a", false, "Won't save to the db. Note: deleting files won't work")
 }

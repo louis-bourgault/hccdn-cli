@@ -48,7 +48,7 @@ var rmCmd = &cobra.Command{
 					return
 				}
 				if info.IsDir() {
-					fmt.Printf("killigg all the children in %s\n", fp)
+					// fmt.Printf("killigg all the children in %s\n", fp)
 
 					childFiles, err := db.GetChildFiles(fp)
 
@@ -56,10 +56,10 @@ var rmCmd = &cobra.Command{
 						fmt.Printf("error getting child files: %s\n", err)
 						return
 					}
-					fmt.Printf("child files: %+v\n", childFiles)
+					// fmt.Printf("child files: %+v\n", childFiles)
 					for _, f := range childFiles {
 						fileUps, err := db.GetUploadsByFilename(f)
-						fmt.Printf("got uploads for child file %s: %+v\n", f, fileUps)
+						// fmt.Printf("got uploads for child file %s: %+v\n", f, fileUps)
 						if err != nil {
 							fmt.Printf("error getting uploads for child file %s: %s\n", f, err)
 							return
@@ -77,7 +77,7 @@ var rmCmd = &cobra.Command{
 				return
 			}
 			for _, upload := range uploadsToDelete {
-				fmt.Printf("deleting upload: %+v\n", upload)
+				// fmt.Printf("deleting upload: %+v\n", upload)
 				err = DeleteFromCDN(upload)
 				if err != nil {
 					fmt.Printf("error deleting upload %s: %s\n", upload.Filename, err)
@@ -108,9 +108,9 @@ func DeleteFromCDN(upload types.Upload) error {
 	if id == "" {
 		return fmt.Errorf("upload id is empty")
 	}
-	fmt.Printf("deleting upload with id %s\n", id)
+	// fmt.Printf("deleting upload with id %s\n", id)
 	url := fmt.Sprintf("https://cdn.hackclub.com/api/v4/upload/%s", upload.Id)
-	fmt.Printf("sending delete request to %s", url)
+	// fmt.Printf("sending delete request to %s", url)
 	req, err := http.NewRequest("DELETE", url, nil)
 	if err != nil {
 		return err
@@ -122,7 +122,7 @@ func DeleteFromCDN(upload types.Upload) error {
 		return err
 	}
 	defer resp.Body.Close()
-	fmt.Printf("response status: %d\n", resp.StatusCode)
+	// fmt.Printf("response status: %d\n", resp.StatusCode)
 	if resp.StatusCode != 200 {
 		bodyBytes, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("failed to delete upload: %s", string(bodyBytes))
