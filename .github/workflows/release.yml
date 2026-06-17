@@ -47,7 +47,7 @@ jobs:
         run: |
           go mod tidy
           go generate ./...
-          go build -o hccdn-cli ./...
+          go build -o hccdn-cli .
         env:
           CGO_ENABLED: "1"
           GOOS: ${{ matrix.goos }}
