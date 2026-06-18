@@ -18,7 +18,7 @@ This will update, once everything is processed and uploaded, a JSON array of all
 ### Optimise
 You can pass the --optimise flag or shorthand -o to optimise images before uploading them to the cdn. This works for PNG and JPEG files. This flag takes a comma seperated list of resolutions, where none means a copy which is not optimised at all, and full means originial resolution but transformed to a 85% quality webp. Apart from that, any other resolutions given specify the max width/height of an image (whatever is higher). It should be noted that images won't be upsampled, and if a specified resolution is higher than the original, the image will just not be processed to this resolution.
 
-Syntax example: ```hccdn-cli up ./imgs/ -o "none,full,300"```
+Syntax example: ```hccdn-cli up ./imgs/ -o="none,full,300"```
 
 ## Deletion
 There is a ```rm``` command available for deleting any uploads. This can take different arguments as to what you are deleting. These options are:
