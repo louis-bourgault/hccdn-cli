@@ -52,7 +52,7 @@ func GetDB() (*Db, error) {
 		}
 
 		pathToDB := baseDir + "/hccdn-cli/hccdn.db"
-		fmt.Printf("db path: %s\n", pathToDB)
+		// fmt.Printf("db path: %s\n", pathToDB)
 		stat, err := os.Stat(pathToDB)
 		os.MkdirAll(baseDir+"/hccdn-cli", os.ModePerm)
 		if os.IsNotExist(err) || stat.IsDir() {
@@ -206,13 +206,13 @@ func GetSessionById(id string) (session types.Session, err error, exists bool) {
 	if err != nil {
 		return types.Session{}, err, false
 	}
-	fmt.Printf("getting session by id: %s\n", id)
+	// fmt.Printf("getting session by id: %s\n", id)
 	row := db.conn.QueryRow("SELECT id, command_text, from_dir FROM sessions WHERE id = ?", id)
 	var s types.Session
 	err = row.Scan(&s.Id, &s.CommandText, &s.CreatedAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			fmt.Printf("session with id %s does not exist\n", id)
+			// fmt.Printf("session with id %s does not exist\n", id)
 			return types.Session{}, nil, false
 
 		}
