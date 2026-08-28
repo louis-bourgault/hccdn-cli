@@ -8,32 +8,32 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// rootCmd represents the base command when called without any subcommands
-var rootCmd = &cobra.Command{
-	Use:   "hccdn-cli",
-	Short: "A brief description of your application",
-	Long: `A longer description that spans multiple lines and likely contains
-examples and usage of using your application. For example:
+var (
+	verbose bool
+	quiet   bool
+	Version = "dev"
+)
 
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
+var rootCmd = &cobra.Command{
+	Use:           "hccdn-cli",
+	Short:         "Upload and manage files on the Hack Club CDN",
+	Version:       Version,
+	SilenceUsage:  true,
+	SilenceErrors: true,
 }
 
-// Execute adds all child commands to the root command and sets flags appropriately.
-// This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute() {
-	err := godotenv.Load()
-	if err != nil {
-		fmt.Println("theres a problem")
-	}
-
-	err = rootCmd.Execute()
-	if err != nil {
+	// A missing .env file is normal; environment variables still work.
+	_ = godotenv.Load()
+	rootCmd.Version = Version
+	if err := rootCmd.Execute(); err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
 		os.Exit(1)
 	}
 }
 
 func init() {
-
+	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Show detailed activity")
+	rootCmd.PersistentFlags().BoolVarP(&quiet, "quiet", "q", false, "Only print errors or requested JSON")
+	rootCmd.MarkFlagsMutuallyExclusive("verbose", "quiet")
 }

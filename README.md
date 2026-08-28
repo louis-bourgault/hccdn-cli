@@ -1,44 +1,156 @@
-A CLI for the hack club CDN.
-For my website, I wanted to make a photography portfolio page, but it was annoying getting everything uploaded because the CDN website isn't great for multiple things.
+# hccdn-cli
 
-# Usage
+A small CLI for uploading files and image variants to the [Hack Club CDN](https://cdn.hackclub.com/).
 
-First build with ```go build .``` or download the prebuilt binary (mac arm64 or linux amd64) from the Github Releases page. Add it to your PATH to use it anywhere on your computer, or alias the location in your zshrc or equivalent.
+It keeps a local SQLite index of uploads. Uploading an unchanged file again reuses the existing CDN URL while still creating a fresh session and JSON manifest. Files are identified by SHA-256 content hashes, not only by their paths.
 
-You need to set an environment variable of HCCDN_API_KEY. Add this to your env, or permanently to something like zshrc on mac or bashrc/zshrc/fshrc on linux.
+## Install
 
-At present, the Github Actions builds don't work on windows, because the toolchain for CGO is really annoying and complicated on windows. If you use windows, go to https://endeavouros.com/, download an iso, prepare a live usb, and wipe your entire drive and replace it with linux. Alternatively, use wsl.
+Build from source:
 
-## Upload file or folder
+```sh
+go build .
+```
 
-```./hccdn-cli up path/to/file/or/directory```
+Or download a Linux amd64 or macOS arm64 archive from GitHub Releases and put `hccdn-cli` on your `PATH`.
 
-This will update, once everything is processed and uploaded, a JSON array of all the files and optimised versions, and a session ID (which can be used for deletion, as described below)
+Create an API key in the Hack Club CDN dashboard and export it:
 
-### Optimise
-You can pass the --optimise flag or shorthand -o to optimise images before uploading them to the cdn. This works for PNG and JPEG files. This flag takes a comma seperated list of resolutions, where none means a copy which is not optimised at all, and full means originial resolution but transformed to a 85% quality webp. Apart from that, any other resolutions given specify the max width/height of an image (whatever is higher). It should be noted that images won't be upsampled, and if a specified resolution is higher than the original, the image will just not be processed to this resolution.
+```sh
+export HCCDN_API_KEY=sk_cdn_your_key_here
+```
 
-Syntax example: ```hccdn-cli up ./imgs/ -o="none,full,300"```
+A local `.env` file containing `HCCDN_API_KEY=...` is also supported. The key is never written to output or the database.
 
-## Deletion
-There is a ```rm``` command available for deleting any uploads. This can take different arguments as to what you are deleting. These options are:
-- all - deletes all uploads that are in the current database.
-- session id - pass any session id to delete everything that was uploaded in that specific session. This can be useful for a quick undo command to get rid of the files that you just uploaded if you do it accidentally.
-- filepath - provide the path to a file or directory, and all uploads of that file/direc are deleted, including all optimisations.
+## Upload
 
-Note: all directory operations are non recursive. They only affect the files immediately in that directory.
+Upload a file or the immediate files in a directory:
 
-# Database
+```sh
+hccdn-cli up ./photos
+```
 
-All information about files that have been uploaded are stored in:
-- Macos/Windows - ```os.UserConfigDir()/hccdn-cli/hccdn.db```
-- Linux: ```($XDG_CONFIG_HOME)/hccdn-cli/hccdn.db``` 
-- If you don't have XDG_COMFG_HOME set, it'll store at your home directory + ```/.local/share/hccdn-cli/hccdn.db```
+Upload recursively:
 
-# Building and Releasing
-This is built with github actions, and crosscompiled for Mac, Linux and Windows with Goreleaser. This action triggers on any git tag. pushed to github.
+```sh
+hccdn-cli up ./photos --recursive
+```
 
-```git tag vX.Y.Z; git push --tags```
+Generate original and WebP variants:
 
-# Licence
-MIT! Feel free to use it however you want, with attribution.
+```sh
+hccdn-cli up ./photos --optimise none,full,300,720
+```
+
+Variant values are:
+
+- `none`: upload the original bytes.
+- `full`: encode an 85-quality WebP at the original dimensions.
+- A positive number such as `720`: encode an 85-quality WebP whose longest side is at most that many pixels. Images are never upsampled.
+
+PNG and JPEG extensions are matched case-insensitively. Other file types are uploaded unchanged. Existing `*.hccdn.json` files are always excluded from directory uploads.
+
+By default, uploads use at most four workers, retry transient CDN failures twice, and time out each request after two minutes. These are configurable:
+
+```sh
+hccdn-cli up ./photos --workers 2 --retries 3 --timeout 5m
+```
+
+### Manifests and output
+
+A successful directory upload writes `<session-id>.hccdn.json` inside the directory. A single file writes `<file>.hccdn.json`. The manifest contains every requested result, whether newly uploaded or reused.
+
+Choose another destination or write JSON to stdout:
+
+```sh
+hccdn-cli up ./photos --output ./photos.json
+hccdn-cli up ./photos --output -
+hccdn-cli up ./photos --json
+```
+
+Normal output is one summary line. Use `--verbose` for per-variant activity or `--quiet` for errors only:
+
+```sh
+hccdn-cli --verbose up ./photos
+hccdn-cli --quiet up ./photos
+```
+
+Manifests retain the original absolute `path` field for compatibility and also include a portable `relative_path`. Each upload includes its optimisation setting, source and payload hashes, and whether it was reused.
+
+## Duplicate detection and database upgrades
+
+The cache identity combines:
+
+- SHA-256 of the source file.
+- A versioned transformation recipe such as `webp:v1:q85:max=720`.
+
+Changing one file uploads only that file's requested variants. Adding an optimisation size uploads only the missing size. Identical content at a different path can reuse the same CDN object.
+
+Databases made by older releases are migrated automatically in place after a one-time `<database>.v1.bak` backup is created. Migration only adds schema and references; it does not eagerly read or hash files. When a legacy file/variant is first requested again, the CLI generates its requested payload, hashes the existing public CDN object, and reuses/backfills the old record only when the bytes match. Changed legacy files are uploaded as new objects.
+
+The database is stored at:
+
+- macOS and Windows: the platform user config directory under `hccdn-cli/hccdn.db`.
+- Linux with `XDG_CONFIG_HOME`: `$XDG_CONFIG_HOME/hccdn-cli/hccdn.db`.
+- Other Linux setups: `~/.local/share/hccdn-cli/hccdn.db`.
+
+`HCCDN_DB_PATH` can override the location, which is useful for isolated automation.
+
+## History and status
+
+Show recent sessions or inspect one in detail:
+
+```sh
+hccdn-cli history
+hccdn-cli history --limit 50
+hccdn-cli history AbCdEfGh
+hccdn-cli history --json
+```
+
+Show the local database counts and, when an API key is available, current CDN quota:
+
+```sh
+hccdn-cli status
+hccdn-cli status --json
+```
+
+## Delete
+
+Preview a deletion first:
+
+```sh
+hccdn-cli rm ./photos --dry-run
+```
+
+Delete references belonging to a file, directory, or session:
+
+```sh
+hccdn-cli rm ./photos/image.jpg
+hccdn-cli rm ./photos
+hccdn-cli rm AbCdEfGh
+```
+
+Files do not need to remain on disk for path deletion to work. Directory matching respects path boundaries and includes descendants.
+
+Uploads reused by another session/path are unlinked but kept on the CDN. A remote object is deleted only after its final active local reference is removed. History is retained and marks removed sessions accordingly.
+
+Deleting everything requires confirmation. For non-interactive use, pass `--yes`:
+
+```sh
+hccdn-cli rm all
+hccdn-cli rm all --yes
+```
+
+## Development
+
+```sh
+go test ./...
+go test -race ./...
+go vet ./...
+```
+
+Releases are built for Linux amd64 and macOS arm64 when a version tag is pushed.
+
+## License
+
+MIT. See [LICENSE](LICENSE).

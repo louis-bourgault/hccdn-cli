@@ -10,7 +10,9 @@ before:
 
 builds:
   - id: linux
-    main: ./...
+    main: .
+    ldflags:
+      - -s -w -X github.com/louis-bourgault/hccdn-cli/cmd.Version={{.Version}}
     env:
       - CGO_ENABLED=1
     goos:
@@ -18,7 +20,9 @@ builds:
     goarch:
       - amd64
   - id: darwin
-    main: ./...
+    main: .
+    ldflags:
+      - -s -w -X github.com/louis-bourgault/hccdn-cli/cmd.Version={{.Version}}
     env:
       - CGO_ENABLED=1
     goos:

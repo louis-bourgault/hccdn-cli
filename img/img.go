@@ -2,6 +2,7 @@ package img
 
 import (
 	"bytes"
+	"fmt"
 	"image"
 	_ "image/jpeg"
 	_ "image/png"
@@ -24,10 +25,16 @@ func OptimiseImage(filePath string, qual string) (*bytes.Buffer, error) {
 	output = &bytes.Buffer{}
 
 	inputImg, _, err := image.Decode(input)
+	if err != nil {
+		return nil, fmt.Errorf("decode image: %w", err)
+	}
 	if qual == "full" {
 		err = webp.Encode(output, inputImg, &webp.Options{Lossless: false, Quality: 85})
 	} else {
-		qualInt, _ := strconv.Atoi(qual)
+		qualInt, err := strconv.Atoi(qual)
+		if err != nil || qualInt <= 0 {
+			return nil, fmt.Errorf("invalid image size %q", qual)
+		}
 		imageWidth := inputImg.Bounds().Dx()
 		imageHeight := inputImg.Bounds().Dy()
 		//the inputted value is the longest side of the image, and we maintain aspect ratio
