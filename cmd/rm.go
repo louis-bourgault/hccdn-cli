@@ -1,142 +1,211 @@
 package cmd
 
 import (
+	"bufio"
+	"context"
+	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 
+	"github.com/louis-bourgault/hccdn-cli/cdn"
 	"github.com/louis-bourgault/hccdn-cli/db"
-	"github.com/louis-bourgault/hccdn-cli/types"
 	"github.com/spf13/cobra"
 )
 
-// rmCmd represents the rm command
+type removalKind int
+
+const (
+	removeAll removalKind = iota
+	removeSession
+	removePath
+)
+
 var rmCmd = &cobra.Command{
-	Use:   "rm",
-	Short: "Delete things from the cdn",
-	Long:  `Delete uploads. Can be filename, direcory (wip), session (wip), or "all`,
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("rm called")
-		if len(args) == 1 {
-			uploadsToDelete := []types.Upload{}
-			var err error
-			location := args[0]
-
-			session, err, sessionExists := db.GetSessionById(location)
-
-			if location == "all" {
-				//get rid of everything in the db
-				uploadsToDelete, err = db.GetAllUploads()
-
-			} else if sessionExists {
-				fmt.Printf("the session exists \n")
-				uploadsToDelete, err = db.GetUploadsBySession(session.Id)
-			} else {
-				fp, err := filepath.Abs(filepath.Clean(location))
-				if err != nil {
-					fmt.Printf("error getting absolute path: %s\n", err)
-					return
-				}
-				info, err := os.Stat(fp)
-				if err != nil {
-					fmt.Printf("error stating file: %s\n", err)
-					return
-				}
-				if info.IsDir() {
-					// fmt.Printf("killigg all the children in %s\n", fp)
-
-					childFiles, err := db.GetChildFiles(fp)
-
-					if err != nil {
-						fmt.Printf("error getting child files: %s\n", err)
-						return
-					}
-					// fmt.Printf("child files: %+v\n", childFiles)
-					for _, f := range childFiles {
-						fileUps, err := db.GetUploadsByFilename(f)
-						// fmt.Printf("got uploads for child file %s: %+v\n", f, fileUps)
-						if err != nil {
-							fmt.Printf("error getting uploads for child file %s: %s\n", f, err)
-							return
-						}
-						uploadsToDelete = append(uploadsToDelete, fileUps...)
-					}
-
-				} else {
-
-					uploadsToDelete, err = db.GetUploadsByFilename(info.Name())
-				}
-			}
-			if err != nil {
-				fmt.Printf("error getting uploads to delete: %s\n", err)
-				return
-			}
-			for _, upload := range uploadsToDelete {
-				// fmt.Printf("deleting upload: %+v\n", upload)
-				err = DeleteFromCDN(upload)
-				if err != nil {
-					fmt.Printf("error deleting upload %s: %s\n", upload.Filename, err)
-				} else {
-					fmt.Printf("deleted upload %s\n", upload.Filename)
-					db.DeleteUpload(upload.Id)
-				}
-			}
-			if sessionExists {
-				err = db.DeleteSession(session.Id)
-				if err != nil {
-					fmt.Printf("error deleting session %s: %s\n", session.Id, err)
-				} else {
-					fmt.Printf("deleted session %s\n", session.Id)
-				}
-			}
-		}
-	},
+	Use:   "rm <all|session-id|file-or-directory>",
+	Short: "Delete uploads from the CDN",
+	Args:  cobra.ExactArgs(1),
+	RunE:  runRemove,
 }
 
-func DeleteFromCDN(upload types.Upload) error {
+func runRemove(cmd *cobra.Command, args []string) error {
+	ctx := cmd.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	database, err := db.GetDB()
+	if err != nil {
+		return err
+	}
+	target := args[0]
+	kind := removePath
+	sessionID := ""
+	path := ""
+	directory := false
+	var candidates []db.RemovalCandidate
 
-	//from docs:
-	// curl -X DELETE \
-	// -H "Authorization: Bearer sk_cdn_your_key_here" \
-	// https://cdn.hackclub.com/api/v4/upload/01234567-89ab-cdef-0123-456789abcdef
-	id := upload.Id
-	if id == "" {
-		return fmt.Errorf("upload id is empty")
+	if target == "all" {
+		kind = removeAll
+		candidates, err = database.RemovalCandidatesAll()
+	} else if _, found, sessionErr := database.Session(target); sessionErr != nil {
+		return sessionErr
+	} else if found {
+		kind = removeSession
+		sessionID = target
+		candidates, err = database.RemovalCandidatesForSession(target)
+	} else {
+		path, err = filepath.Abs(filepath.Clean(target))
+		if err != nil {
+			return err
+		}
+		if info, statErr := os.Stat(path); statErr == nil {
+			directory = info.IsDir()
+		} else if !errors.Is(statErr, os.ErrNotExist) {
+			return statErr
+		}
+		candidates, err = database.RemovalCandidatesForPath(path, directory)
+		if err == nil && len(candidates) == 0 && !directory {
+			// A deleted local directory can still be selected from database paths.
+			directory = true
+			candidates, err = database.RemovalCandidatesForPath(path, true)
+		}
 	}
-	// fmt.Printf("deleting upload with id %s\n", id)
-	url := fmt.Sprintf("https://cdn.hackclub.com/api/v4/upload/%s", upload.Id)
-	// fmt.Printf("sending delete request to %s", url)
-	req, err := http.NewRequest("DELETE", url, nil)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", os.Getenv("HCCDN_API_KEY")))
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	if len(candidates) == 0 {
+		if kind == removeSession {
+			if err := database.MarkSessionRemoved(sessionID); err != nil {
+				return err
+			}
+		}
+		if !quiet {
+			fmt.Fprintln(cmd.OutOrStdout(), "Nothing to remove.")
+		}
+		return nil
+	}
+
+	dryRun, err := cmd.Flags().GetBool("dry-run")
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
-	// fmt.Printf("response status: %d\n", resp.StatusCode)
-	if resp.StatusCode != 200 {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("failed to delete upload: %s", string(bodyBytes))
+	yes, err := cmd.Flags().GetBool("yes")
+	if err != nil {
+		return err
+	}
+	if kind == removeAll && !dryRun && !yes {
+		confirmed, err := confirmAll(cmd, len(candidates))
+		if err != nil {
+			return err
+		}
+		if !confirmed {
+			return errors.New("removal cancelled")
+		}
+	}
+	if dryRun {
+		for _, candidate := range candidates {
+			action := "delete from CDN"
+			if candidate.OtherReferences > 0 {
+				action = fmt.Sprintf("keep on CDN (%d other references)", candidate.OtherReferences)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\t%s\n", action, candidate.Upload.ID, candidate.Upload.URL)
+		}
+		return nil
+	}
+
+	apiKey := os.Getenv("HCCDN_API_KEY")
+	if apiKey == "" {
+		return errors.New("HCCDN_API_KEY is not set")
+	}
+	retries, err := cmd.Flags().GetInt("retries")
+	if err != nil {
+		return err
+	}
+	timeout, err := cmd.Flags().GetDuration("timeout")
+	if err != nil {
+		return err
+	}
+	if retries < 0 {
+		return errors.New("retries cannot be negative")
+	}
+	if timeout <= 0 {
+		return errors.New("timeout must be positive")
+	}
+	client := cdn.NewClient(apiKey, os.Getenv("HCCDN_API_URL"), timeout, retries)
+	remoteDeleted, preserved := 0, 0
+	var failures []error
+	for _, candidate := range candidates {
+		deleted := candidate.OtherReferences == 0
+		if deleted {
+			err = client.Delete(ctx, candidate.Upload.ID)
+			var statusErr *cdn.StatusError
+			if err != nil && !(errors.As(err, &statusErr) && statusErr.StatusCode == http.StatusNotFound) {
+				failures = append(failures, fmt.Errorf("delete %s: %w", candidate.Upload.ID, err))
+				continue
+			}
+			remoteDeleted++
+		} else {
+			preserved++
+		}
+
+		switch kind {
+		case removeAll:
+			err = database.RemoveAllReferences(candidate.Upload.ID, deleted)
+		case removeSession:
+			err = database.RemoveSessionReference(sessionID, candidate.Upload.ID, deleted)
+		case removePath:
+			err = database.RemovePathReferences(path, directory, candidate.Upload.ID, deleted)
+		}
+		if err != nil {
+			failures = append(failures, fmt.Errorf("update local record %s: %w", candidate.Upload.ID, err))
+			continue
+		}
+		if verbose {
+			action := "deleted"
+			if !deleted {
+				action = "unlinked (still referenced)"
+			}
+			fmt.Fprintf(cmd.ErrOrStderr(), "%s %s\n", action, candidate.Upload.URL)
+		}
+	}
+	if len(failures) > 0 {
+		return fmt.Errorf("%d removal(s) failed: %w", len(failures), errors.Join(failures...))
+	}
+	if kind == removeSession {
+		if err := database.MarkSessionRemoved(sessionID); err != nil {
+			return err
+		}
+	} else if kind == removeAll {
+		if err := database.MarkAllSessionsRemoved(); err != nil {
+			return err
+		}
+	}
+	if !quiet {
+		fmt.Fprintf(cmd.OutOrStdout(), "%d deleted from CDN, %d preserved because they are still referenced.\n", remoteDeleted, preserved)
 	}
 	return nil
 }
 
+func confirmAll(cmd *cobra.Command, count int) (bool, error) {
+	if !isTerminal(cmd.InOrStdin()) {
+		return false, errors.New("rm all requires --yes when input is not interactive")
+	}
+	fmt.Fprintf(cmd.ErrOrStderr(), "Delete %d uploads from the CDN? [y/N] ", count)
+	line, err := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
+	if err != nil {
+		return false, err
+	}
+	answer := strings.ToLower(strings.TrimSpace(line))
+	return answer == "y" || answer == "yes", nil
+}
+
 func init() {
 	rootCmd.AddCommand(rmCmd)
-
-	// Here you will define your flags and configuration settings.
-
-	// Cobra supports Persistent Flags which will work for this command
-	// and all subcommands, e.g.:
-	// rmCmd.PersistentFlags().String("foo", "", "A help for foo")
-
-	// Cobra supports local flags which will only run when this command
-	// is called directly, e.g.:
-	// rmCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
+	rmCmd.Flags().Bool("dry-run", false, "Show what would be removed")
+	rmCmd.Flags().BoolP("yes", "y", false, "Confirm rm all without prompting")
+	rmCmd.Flags().Int("retries", 2, "Retries for transient CDN failures")
+	rmCmd.Flags().Duration("timeout", 30*time.Second, "Timeout for each CDN request")
 }
